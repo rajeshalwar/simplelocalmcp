@@ -22,7 +22,13 @@ RATE_PER_KWH = 0.15      # typical Texas retail electricity rate, dollars
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
 PVWATTS_URL = "https://developer.nlr.gov/api/pvwatts/v8.json"
 # Free key from https://developer.nlr.gov/signup/. DEMO_KEY works but is
-# heavily rate limited.
+# heavily rate limited. Set it in the environment or in a .env file here.
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(ENV_FILE):
+    for line in open(ENV_FILE):
+        name, _, value = line.strip().partition("=")
+        if name and not name.startswith("#"):
+            os.environ.setdefault(name, value)
 NLR_API_KEY = os.environ.get("NLR_API_KEY", "DEMO_KEY")
 
 
