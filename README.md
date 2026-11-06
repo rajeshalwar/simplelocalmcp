@@ -31,24 +31,28 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python agent.py
 ```
 
+Solar production comes from NLR's [PVWatts](https://developer.nlr.gov/docs/solar/pvwatts/v8/)
+API. It works out of the box with the shared `DEMO_KEY`, which is heavily rate
+limited. For a demo, get a free key at <https://developer.nlr.gov/signup/> and
+run `NLR_API_KEY=your-key .venv/bin/python agent.py`.
+
 ```
 you › Is solar worth it at 1100 Congress Ave, Austin TX 78701?
   → geocode_address({'address': '1100 Congress Ave, Austin TX 78701'})
-  ← {"matched_address": "1100 CONGRESS AVE, AUSTIN, TX, 78701", "nearest_city": "Austin"}
-  → estimate_solar_production({'city': 'Austin'})
-  ← {"city": "Austin", "capacity_kw": 7.0, "annual_kwh": 11200}
-  → estimate_savings({'annual_kwh': 11200})
-  ← {"annual_savings_usd": 1680, "system_cost_usd": 19600, "payback_years": 11.7, ...}
+  ← {"matched_address": "1100 CONGRESS AVE, AUSTIN, TX, 78701", "lat": 30.27644, "lon": -97.73975}
+  → estimate_solar_production({'lat': 30.27644, 'lon': -97.73975, 'capacity_kw': 7})
+  ← {"capacity_kw": 7.0, "annual_kwh": 10382, "weather_data": "NSRDB PSM V3 GOES tmy-2020 3.2.0"}
+  → estimate_savings({'annual_kwh': 10382, 'capacity_kw': 7})
+  ← {"annual_savings_usd": 1557, "system_cost_usd": 19600, "payback_years": 12.6, ...}
 
-A typical 7 kW system in Austin makes about 11,200 kWh a year, saving
-roughly $1,680. At about $19,600 installed, it pays for itself in ~12 years.
+A 7 kW system at your address makes about 10,400 kWh a year, saving
+roughly $1,560. At about $19,600 installed, it pays for itself in ~12.6 years.
 ```
 
-*(Illustrative: the tool calls are real output, the final sentence is the
-kind of answer to expect. Replace it with a real run.)*
+*(The tool calls are real output; the final answer is shortened.)*
 
-You can ask with a full street address or just a city name. An address in a
-suburb (Round Rock, Plano) uses the nearest city in the table.
+Ask with a full street address in Texas. The Census geocoder needs a street,
+so a bare city name ("Austin") won't match.
 
 ## The demo, step by step
 
@@ -58,14 +62,16 @@ suburb (Round Rock, Plano) uses the nearest city in the table.
    `npx @modelcontextprotocol/inspector .venv/bin/python server.py`
 3. **Connect them.** `python agent.py`. Same model, but now every number
    comes from a tool, and you can see each call.
-4. **Prove it's local.** Turn Wi-Fi off and ask about a *city* ("Austin").
-   It still works. Now try an *address*: `geocode_address` fails, because it
-   is the one tool that goes online. The model stays local; the only thing
-   sent out is the address, to the US Census geocoder.
+4. **Prove the model is local.** Turn Wi-Fi off and ask again. The model
+   still runs and answers, but the tools fail and it passes on their `hint`.
+   The only things sent out are the address (to the US Census geocoder) and
+   its coordinates (to PVWatts). Your question and the conversation never
+   leave the laptop.
 5. **Errors guide the model.** Ask about an address outside Texas. The tool
    returns a `hint`, and the model passes it on instead of guessing.
 6. **Add your own tool.** Paste this into `server.py`, restart the agent, and
-   ask *"I have 500 sq ft of roof in Houston, what would solar save me?"*
+   ask *"I have 500 sq ft of roof at 1201 Smith St, Houston TX 77002, what
+   would solar save me?"*
 
    ```python
    @mcp.tool()
@@ -84,6 +90,7 @@ sequenceDiagram
     participant Server as server.py<br/>(MCP server)
     participant Ollama as Ollama<br/>(local model)
     participant Census as US Census<br/>geocoder
+    participant PVWatts as NLR PVWatts<br/>API
 
     Note over Agent,Server: Startup
     Agent->>Server: start as subprocess, connect over stdio
@@ -98,10 +105,13 @@ sequenceDiagram
         Ollama-->>Agent: tool_calls
         Agent->>Server: call_tool(name, args)
         alt geocode_address
-            Server->>Census: look up address (the only online call)
-            Census-->>Server: coordinates → nearest city
-        else estimate_solar_production / estimate_savings
-            Note over Server: computed offline from hardcoded<br/>per-city figures (no NREL call)
+            Server->>Census: look up address
+            Census-->>Server: lat, lon
+        else estimate_solar_production
+            Server->>PVWatts: lat, lon, 7 kW system
+            PVWatts-->>Server: annual kWh (NSRDB weather data)
+        else estimate_savings
+            Note over Server: computed locally from<br/>rate and cost constants
         end
         Server-->>Agent: JSON result (or error + hint)
         Note over Agent: append result to messages as role "tool"
@@ -109,18 +119,20 @@ sequenceDiagram
 
     Agent->>Ollama: chat(messages, tools)
     Ollama-->>Agent: plain-English answer (no tool_calls)
-    Agent-->>You: "A 7 kW system in Austin makes ~11,200 kWh/yr..."
+    Agent-->>You: "A 7 kW system at your address makes ~10,400 kWh/yr..."
 ```
 
 ## What's in each file
 
 | File | Lines | What it shows |
 |---|---|---|
-| `server.py` | ~110 | An MCP server: `@mcp.tool()` turns a function into a tool. The docstring is what the model reads. |
+| `server.py` | ~100 | An MCP server: `@mcp.tool()` turns a function into a tool. The docstring is what the model reads. |
 | `agent.py` | ~60 | The agent loop: list tools → ask the model → run the tools it picks → repeat until it answers. |
 
-The solar figures are rough per-city averages, hardcoded so the demo needs no
-API key. Address lookup uses the free US Census geocoder (no key, no signup).
+Address lookup uses the free US Census geocoder (no key, no signup). Solar
+production comes from PVWatts for a typical roof-mounted system (south-facing,
+20° tilt, 14% losses), so your own roof's direction and shading aren't taken
+into account. Electricity rate and installed cost are flat Texas averages.
 
 ## Where to go next
 

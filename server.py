@@ -7,6 +7,8 @@ SDK note: in mcp >= 2.0 the class many tutorials call `FastMCP` is named
 `MCPServer`. Same decorator API.
 """
 import json
+import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -14,41 +16,23 @@ from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("solar")
 
-# For each city: (latitude, longitude, rough annual output of 1 kW of panels in
-# kWh). Ballpark figures in the range NREL's PVWatts reports. Hardcoded on
-# purpose: no API key, nothing to fail on stage.
-CITIES = {
-    "amarillo":       (35.22, -101.83, 1750),
-    "austin":         (30.27,  -97.74, 1600),
-    "brownsville":    (25.90,  -97.50, 1500),
-    "corpus christi": (27.80,  -97.40, 1550),
-    "dallas":         (32.78,  -96.80, 1550),
-    "el paso":        (31.76, -106.49, 1850),
-    "fort worth":     (32.76,  -97.33, 1550),
-    "houston":        (29.76,  -95.37, 1450),
-    "lubbock":        (33.58, -101.86, 1750),
-    "midland":        (32.00, -102.08, 1800),
-    "san antonio":    (29.42,  -98.49, 1600),
-}
-
 COST_PER_WATT = 2.80     # typical installed price in Texas, dollars
 RATE_PER_KWH = 0.15      # typical Texas retail electricity rate, dollars
 
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
-
-
-def nearest_city(lat: float, lon: float) -> str:
-    """The city in CITIES closest to a point (close enough for Texas)."""
-    return min(CITIES, key=lambda c: (CITIES[c][0] - lat) ** 2 + (CITIES[c][1] - lon) ** 2)
+PVWATTS_URL = "https://developer.nlr.gov/api/pvwatts/v8.json"
+# Free key from https://developer.nlr.gov/signup/. DEMO_KEY works but is
+# heavily rate limited.
+NLR_API_KEY = os.environ.get("NLR_API_KEY", "DEMO_KEY")
 
 
 # The docstring is not just documentation: it is what the model reads to decide
 # when to call the tool and what to pass. Write it for the model.
 @mcp.tool()
 def geocode_address(address: str) -> dict:
-    """Look up a street address in Texas and find the nearest city we have
-    solar data for. Call this first when the user gives an address.
-    Note: this is the one tool that uses the internet (the US Census geocoder)."""
+    """Look up a street address in Texas and return its latitude and longitude.
+    Always call this first: estimate_solar_production needs the lat and lon.
+    Uses the internet (the US Census geocoder)."""
     query = urllib.parse.urlencode(
         {"address": address, "benchmark": "Public_AR_Current", "format": "json"})
     try:
@@ -60,30 +44,44 @@ def geocode_address(address: str) -> dict:
                 "hint": "Tell the user the address lookup is offline and ask for their city instead."}
     if not matches:
         return {"error": f"no match for '{address}'",
-                "hint": "Ask the user for the full street address, city, state and ZIP."}
+                "hint": "The geocoder needs a street address, not just a city. Ask the "
+                        "user for the full street address, city, state and ZIP."}
 
     match = matches[0]
     if match["addressComponents"]["state"] != "TX":
         return {"error": f"'{match['matchedAddress']}' is not in Texas",
                 "hint": "Tell the user this assistant only covers Texas."}
-    lat, lon = match["coordinates"]["y"], match["coordinates"]["x"]
     return {"matched_address": match["matchedAddress"],
-            "nearest_city": nearest_city(lat, lon).title()}
+            "lat": round(match["coordinates"]["y"], 5),
+            "lon": round(match["coordinates"]["x"], 5)}
 
 
 @mcp.tool()
-def estimate_solar_production(city: str, capacity_kw: float = 7.0) -> dict:
-    """Estimate how many kWh per year a solar array produces in a Texas city.
-    Use a typical home size of 7 kW unless the user gives a size."""
-    key = city.lower().removesuffix(", tx").removesuffix(" tx").strip()
-    if key not in CITIES:
-        return {"error": f"no data for '{city}'",
-                "hint": "If the user gave an address, call geocode_address and use its "
-                        "nearest_city. Otherwise tell them the supported cities: "
-                        + ", ".join(c.title() for c in CITIES)}
-    return {"city": key.title(),
-            "capacity_kw": capacity_kw,
-            "annual_kwh": round(CITIES[key][2] * capacity_kw)}
+def estimate_solar_production(lat: float, lon: float, capacity_kw: float = 7.0) -> dict:
+    """Estimate how many kWh per year a solar array produces at a location.
+    Pass the lat and lon from geocode_address. Use a typical home size of 7 kW
+    unless the user gives a size. Uses the internet (NLR's PVWatts)."""
+    # Typical roof-mounted home system: standard panels, fixed rack, 20° tilt
+    # facing south, 14% losses (the PVWatts default).
+    query = urllib.parse.urlencode(
+        {"api_key": NLR_API_KEY, "lat": lat, "lon": lon, "system_capacity": capacity_kw,
+         "module_type": 0, "array_type": 1, "tilt": 20, "azimuth": 180, "losses": 14})
+    try:
+        with urllib.request.urlopen(f"{PVWATTS_URL}?{query}", timeout=30) as resp:
+            data = json.load(resp)
+    except Exception as exc:
+        if isinstance(exc, urllib.error.HTTPError) and exc.code == 422:
+            data = json.load(exc)  # bad inputs: the body lists what was wrong
+        else:
+            return {"error": f"PVWatts unreachable: {exc}",
+                    "hint": "Tell the user the solar data service is offline or rate "
+                            "limited (set NLR_API_KEY for a higher limit) and to try again later."}
+    if data.get("errors"):
+        return {"error": "; ".join(data["errors"]),
+                "hint": "Check that lat and lon came from geocode_address."}
+    return {"capacity_kw": capacity_kw,
+            "annual_kwh": round(data["outputs"]["ac_annual"]),
+            "weather_data": data["station_info"]["weather_data_source"]}
 
 
 @mcp.tool()
