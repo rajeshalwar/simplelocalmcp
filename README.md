@@ -74,6 +74,44 @@ suburb (Round Rock, Plano) uses the nearest city in the table.
        return {"capacity_kw": round(square_feet / 100, 1)}
    ```
 
+## How it works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Agent as agent.py
+    participant Server as server.py<br/>(MCP server)
+    participant Ollama as Ollama<br/>(local model)
+    participant Census as US Census<br/>geocoder
+
+    Note over Agent,Server: Startup
+    Agent->>Server: start as subprocess, connect over stdio
+    Agent->>Server: list_tools()
+    Server-->>Agent: geocode_address, estimate_solar_production, estimate_savings
+    Note over Agent: turn MCP tool schemas into Ollama tool definitions<br/>(skipped with --no-tools)
+
+    You->>Agent: "Is solar worth it at 1100 Congress Ave, Austin TX?"
+
+    loop until the model answers without a tool call
+        Agent->>Ollama: chat(messages, tools)
+        Ollama-->>Agent: tool_calls
+        Agent->>Server: call_tool(name, args)
+        alt geocode_address
+            Server->>Census: look up address (the only online call)
+            Census-->>Server: coordinates → nearest city
+        else estimate_solar_production / estimate_savings
+            Note over Server: computed offline from hardcoded<br/>per-city figures (no NREL call)
+        end
+        Server-->>Agent: JSON result (or error + hint)
+        Note over Agent: append result to messages as role "tool"
+    end
+
+    Agent->>Ollama: chat(messages, tools)
+    Ollama-->>Agent: plain-English answer (no tool_calls)
+    Agent-->>You: "A 7 kW system in Austin makes ~11,200 kWh/yr..."
+```
+
 ## What's in each file
 
 | File | Lines | What it shows |
