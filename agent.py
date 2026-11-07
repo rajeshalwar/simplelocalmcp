@@ -11,7 +11,7 @@ import sys
 import ollama
 from mcp import Client, StdioServerParameters
 
-MODEL = os.environ.get("MODEL", "qwen2.5:7b")
+MODEL = os.environ.get("MODEL", "qwen3.5:2b")
 SYSTEM = ("You are a solar assistant for Texas homeowners. Never guess numbers: "
           "get every figure from a tool, then explain it in plain English.")
 

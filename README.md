@@ -4,6 +4,12 @@ Ask *"is solar worth it at 1100 Congress Ave, Austin TX?"* and get a real
 answer from a model running on your laptop, using numbers from three small
 Python functions you wrote.
 
+> **For educational purposes only.** This is a teaching demo of local models
+> and MCP, not a solar quote or financial advice. The estimates assume a typical
+> 7 kW south-facing system and flat Texas electricity rates and installed costs,
+> so real numbers for a given home will differ. Talk to a licensed installer
+> before making decisions.
+
 Three things, nothing else:
 
 ```
@@ -16,12 +22,12 @@ Three things, nothing else:
 - **Tool:** a Python function with a docstring.
 - **MCP:** the standard way to hand tools to *any* AI client.
 
-## Before you come (the model download is ~4.7 GB)
+## Before you come (the model download is ~2.7 GB)
 
 ```bash
 brew install ollama        # or the installer from ollama.com
 ollama serve &             # skip if the Ollama app is already running
-ollama pull qwen2.5:7b     # slow laptop? use qwen2.5:3b and MODEL=qwen2.5:3b
+ollama pull qwen3.5:2b     # fast laptop? try a larger model: MODEL=qwen3.5:9b or MODEL=qwen3.8
 ```
 
 ## Run it
