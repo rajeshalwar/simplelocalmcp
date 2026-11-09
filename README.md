@@ -145,3 +145,7 @@ into account. Electricity rate and installed cost are flat Texas averages.
 [`localaimcp`](https://github.com/rajeshalwar/localaimcp) is the full version: real NREL and Census data,
 Postgres, systemd, and network isolation enforced by containers, so the model
 *can't* reach the internet.
+
+## Talks
+
+[Texas Linux Fest Presentation Link](https://docs.google.com/presentation/d/e/2PACX-1vQRl3ziAkbWN9bRmenTXZB87UMCnJ2nUcv9CVKAu9Zpq_STNcHGCqAg6YLnhCtIcqVRpdxzjctANGAv/pub?start=false&loop=false&delayms=3000&slide=id.sl_01)
